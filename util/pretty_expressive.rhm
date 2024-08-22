@@ -1,0 +1,26 @@
+#lang rhombus/and_meta
+
+import:
+  lib("pretty-expressive/main.rkt") as pe:
+    rename:
+      #{a-append} as a_append
+      #{as-append} as as_append
+      #{empty-doc} as empty_doc
+      #{hard-nl} as hard_nl
+      #{pretty-format} as pretty_format
+      #{pretty-print} as pretty_print
+      #{u-append} as u_append
+      #{us-append} as us_append
+      #{v-append} as v_append
+
+export:
+  all_from(.pe)
+  vs
+  vs_append
+
+def vs: pe.alt(pe.nl, pe.space)
+
+fun
+| vs_append([]): pe.empty_doc
+| vs_append([a]): a
+| vs_append([a, & bs]): pe.u_append(a, vs, vs_append(bs))

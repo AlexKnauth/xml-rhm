@@ -1,0 +1,44 @@
+#lang rhombus/and_meta
+
+// import: rhombus/meta
+
+export:
+  datatype
+
+#//
+expr.macro
+| 'any()': '#false'
+| 'any($(a :: expr_meta.Parsed))': '$a'
+| 'any($(a :: expr_meta.Parsed), $b, ...)': '$a || any($b, ...)'
+
+#//
+annot.macro
+| 'any()': 'None'
+| 'any($(a :: annot_meta.Parsed))': '$a'
+| 'any($(a :: annot_meta.Parsed), $b, ...)': '$a || any($b, ...)'
+
+meta:
+  syntax_class Field:
+    kind: ~group
+  | '$(name :: Identifier)'
+  | '$(name :: Identifier) :: $(annotation :: Group)'
+  syntax_class Variant:
+    kind: ~group
+  | '$(name :: Identifier) ($(field :: Field), ...)':
+      field inner: 'class $name ($field, ...)'
+
+defn.macro 'datatype $(name :: Identifier)
+            | $(variant :: Variant)
+            | ...':
+  let is_name: Syntax.make_temp_id(name)
+  '«
+     annot.macro '$name':
+       'satisfying($is_name)'
+     namespace $name:
+       class.together:
+         $(variant.inner)
+         ...
+       export: $(variant.name) ...
+     fun $is_name(v):
+       any(v is_a $name . $(variant.name), ...)
+   »'

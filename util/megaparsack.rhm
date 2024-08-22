@@ -1,0 +1,74 @@
+#lang rhombus/and_meta
+
+import:
+  lib("data/applicative.rkt") open
+  lib("data/monad.rkt") open:
+    except do
+  lib("megaparsack/main.rkt") open:
+    rename:
+      #{eof/p} as eof_p
+      #{lookahead/p} as lookahead_p
+      #{many/p} as many_p
+      #{many+/p} as many_plus_p
+      #{noncommittal/p} as noncommittal_p
+      #{or/p} as or_p
+      #{parse-result!} as parse_result
+      #{try/p} as try_p
+  lib("megaparsack/text.rkt") open:
+    rename:
+      #{char-not-in/p} as char_not_in_p
+      #{integer/p} as integer_p
+      #{parse-string} as parse_string
+      #{space/p} as space_p
+      #{string/p} as string_p
+
+export:
+  all_from(lib("data/applicative.rkt"))
+  all_from(lib("data/monad.rkt"))
+  all_from(lib("megaparsack/main.rkt"))
+  all_from(lib("megaparsack/text.rkt"))
+  do
+  mws_p
+  ws_p
+  string_ne_p
+
+fun chainr(x, f): chain(f, x)
+
+expr.macro
+| 'do: $(b :: Group)': '$b'
+| 'do:
+     let $x ...: $a
+     $b
+     ...':
+    'block:
+       let $x ...: $a
+       do:
+         $b
+         ...'
+| 'do:
+     $x ... <-: $a
+     $b
+     ...':
+    'chainr($a,
+            fun($x ...):
+              do:
+                $b
+                ...)'
+| 'do:
+     $a
+     $b
+     ...':
+    'chainr($a,
+            fun(_):
+              do:
+                $b
+                ...)'
+
+
+def mws_p: many_p(space_p)
+def ws_p: many_plus_p(space_p)
+
+fun string_ne_p(s :: String):
+  do:
+    PairList[c, ...] <-: many_plus_p(char_not_in_p(s))
+    pure(String.append(to_string(c), ...))

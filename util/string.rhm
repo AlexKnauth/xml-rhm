@@ -1,0 +1,12 @@
+#lang rhombus/and_meta
+
+import:
+  lib("racket/string.rkt") as rktstr:
+    rename:
+      #{string-join} as string_join
+
+export:
+  string_join
+
+fun string_join([s, ...], sep):
+  to_string(rktstr.string_join(PairList[s, ...], sep))

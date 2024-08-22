@@ -1,0 +1,496 @@
+#lang rhombus/and_meta
+
+import:
+  rhombus.values as rhm_values
+  xml/util/datatype.datatype
+  xml/util/list.splitf_at
+  xml/util/megaparsack as mpc
+  xml/util/pretty_expressive as pe
+  xml/util/string.string_join
+  lib("xml/main.rkt") as rktxml:
+    rename:
+      #{collapse-whitespace} as collapse_whitespace
+
+export:
+  AttributeValue
+  Attributes
+  Value
+
+// ---------------------------------------------------------
+
+// Datatype for XML / HTML
+
+annot.macro 'AttributeValue':
+  'String || True'
+// True is for HTML5-style boolean attributes
+
+namespace Attributes
+annot.macro 'Attributes':
+  'Map.of(String, AttributeValue)'
+
+datatype Value
+| Comment(string :: String)
+| Text(string :: String)
+| CData(string :: String)
+| Element(tag :: String, attributes :: Attributes, children :: List.of(Value))
+
+fun
+| Value.is_text(v :: Value.Text): #true
+| Value.is_text(_): #false
+
+fun Value.is_nontext(v): !Value.is_text(v)
+
+// ---------------------------------------------------------
+
+// Pretty Printing
+
+fun Value.pretty_print(v):
+  pe.pretty_print(Value.doc(v))
+
+fun Value.pretty_println(v):
+  pe.pretty_print(Value.docln(v))
+
+fun Value.pretty_format(v):
+  to_string(pe.pretty_format(Value.doc(v)))
+
+fun Value.pretty_formatln(v):
+  to_string(pe.pretty_format(Value.docln(v)))
+
+fun Value.docln(v):
+  pe.u_append(Value.doc(v), pe.hard_nl)
+
+fun
+| Value.doc(Value.Text(s)):
+    pe.text(s)
+| Value.doc(Value.Element(name, {k: v, ...}, [])):
+    wrap_children(pe.u_append(pe.text("<"), pe.text(name)),
+                  pe.space,
+                  [Attributes.entry_doc(k, v), ...],
+                  pe.text("/>"))
+| Value.doc(Value.Element(name, {k: v, ...}, children)):
+    wrap_children(wrap_children(pe.u_append(pe.text("<"), pe.text(name)),
+                                pe.nl,
+                                [Attributes.entry_doc(k, v), ...],
+                                pe.text(">")),
+                  pe.empty_doc,
+                  values_docs(children),
+                  pe.u_append(pe.text("</"), pe.text(name), pe.text(">")))
+
+fun wrap_children(before, space, [child, ...], after):
+  pe.alt(pe.v_append(before,
+                     pe.a_append(pe.text("    "), pe.v_append(child, ...)),
+                     after),
+         pe.flatten(pe.u_append(before, pe.a_append(space, child),..., after)))
+
+fun values_docs(vs):
+  let [ts, rst1]: splitf_at(vs, Value.is_text)
+  let [nts, rst2]: splitf_at(rst1, Value.is_nontext)
+  match [ts, nts]
+  | [[], []]: rst2
+  | [[], nts]: nts.map(Value.doc) ++ values_docs(rst2)
+  | [ts, nts]:
+      [pe.vs_append(ts.map(Value.doc))] ++ nts.map(Value.doc) ++ values_docs(rst2)
+
+fun
+| Attributes.entry_doc(k, #true):
+    pe.text(k)
+| Attributes.entry_doc(k, v :: String):
+    pe.u_append(pe.text(k), pe.text("="), pe.text(to_string(v, ~mode: #'expr)))
+
+// ---------------------------------------------------------
+
+// Parsing
+
+def string_nlgws_p: mpc.string_ne_p("</=>\\\" \n")
+def string_nlgnl_p: mpc.string_ne_p("</=>\\\"\n")
+def string_nlg_p: mpc.string_ne_p("</=>\\\"")
+
+def Value.Text.p:
+  mpc.do:
+    s <-: string_nlgnl_p
+    mpc.pure(Value.Text(s))
+
+def Attributes.entry_p:
+  mpc.do:
+    name <-: string_nlgws_p
+    mpc.or_p(
+      mpc.do:
+        mpc.string_p("=\"")
+        value <-: string_nlg_p
+        mpc.string_p("\"")
+        mpc.pure([name, value]),
+      mpc.do:
+        mpc.lookahead_p(mpc.or_p(mpc.space_p, mpc.string_p(">")))
+        mpc.pure([name, #true]))
+
+def Attributes.p:
+  mpc.do:
+    PairList[[k, v], ...] <-:
+      mpc.many_p(mpc.do: mpc.noncommittal_p(mpc.ws_p); Attributes.entry_p)
+    mpc.pure({k: v, ...})
+
+def Value.Element.p:
+  mpc.do:
+    name <-: mpc.try_p(mpc.do:
+                         mpc.string_p("<")
+                         string_nlgws_p)
+    attrs <-: Attributes.p
+    mpc.mws_p
+    mpc.or_p(
+      mpc.do:
+        mpc.string_p("/>")
+        mpc.pure(Value.Element(name, attrs, [])),
+      mpc.do:
+        mpc.string_p(">")
+        PairList[c, ...] <-:
+          mpc.many_p(mpc.do: mpc.noncommittal_p(mpc.mws_p); Value.p)
+        mpc.mws_p
+        mpc.string_p("</")
+        mpc.string_p(name)
+        mpc.string_p(">")
+        mpc.pure(Value.Element(name, attrs, [c, ...])))
+
+def Value.p:
+  mpc.or_p(Value.Text.p, Value.Element.p)
+
+fun Value.from_string(s :: String):
+  mpc.parse_result(
+    mpc.parse_string(
+      mpc.do:
+        v <-: Value.p
+        mpc.eof_p
+        mpc.pure(v),
+      s))
+
+check:
+  Value.from_string("aoeu")
+  ~is Value.Text("aoeu")
+check:
+  Value.from_string("<aoeu/>")
+  ~is Value.Element("aoeu", {}, [])
+check:
+  Value.from_string("<a>b</a>")
+  ~is Value.Element("a", {}, [Value.Text("b")])
+check:
+  Value.from_string("<a><b/></a>")
+  ~is Value.Element("a", {}, [Value.Element("b", {}, [])])
+
+check:
+  Value.from_string(
+    "<form method=\"get\" action=\"next\">label</form>")
+  ~is Value.Element("form",
+                    {"method": "get", "action": "next"},
+                    [Value.Text("label")])
+
+check:
+  Value.from_string(
+    "<body bgcolor=\"white\">"
+      ++ "<form method=\"get\" action=\"next\">label</form>"
+      ++ "</body>")
+  ~is Value.Element("body",
+                    {"bgcolor": "white"},
+                    [Value.Element("form",
+                                   {"method": "get", "action": "next"},
+                                   [Value.Text("label")])])
+
+check:
+  Value.from_string(
+    "<body bgcolor=\"white\">"
+      ++ "<form method=\"get\" action>label</form>"
+      ++ "</body>")
+  ~is Value.Element("body",
+                    {"bgcolor": "white"},
+                    [Value.Element("form",
+                                   {"method": "get", "action": #true},
+                                   [Value.Text("label")])])
+
+// ---------------------------------------------------------
+
+// Smarter Constructors
+
+#//
+fun merge_text(vs):
+  let [ts, rst1]: splitf_at(vs, is_text)
+  let [nts, rst2]: splitf_at(rst1, is_nontext)
+  match [ts, nts]
+  | [[], []]: rst2
+  | [[], nts]: nts ++ merge_text(rst2)
+  | [[Value.Text(s), ...], nts]:
+      let sep: if rktxml.collapse_whitespace() | " " | "\n"
+      [Value.Text(string_join([s, ...], sep))] ++ nts ++ merge_text(rst2)
+
+annot.macro 'AttributeEntryValue':
+  'maybe(AttributeValue)'
+
+fun Attributes.get(attrs :: Attributes, k :: String) :: AttributeEntryValue:
+  Map.get(attrs, k, #false)
+
+fun Attributes.set(attrs :: Attributes, k :: String, v :: AttributeEntryValue):
+  if v
+  | attrs ++ {k: v}
+  | attrs.remove(k)
+
+fun Attributes.from_entries(& entries) :: Attributes:
+  for Map ([k :: String, v :: AttributeEntryValue]: entries):
+    keep_when: v
+    rhm_values(k, v)
+
+meta:
+  syntax_class Boolean:
+    kind: ~term
+  | '#true'
+  | '#false'
+
+  syntax_class AttributeEntryValue:
+    kind: ~group
+    fields: value
+  | '«$(value :: String)»'
+  | '«$(value :: Boolean)»'
+  | '«$'$'$(value :: Term)»'
+
+  syntax_class AttributeEntry:
+    kind: ~group
+    fields: entry
+  | '«$(k :: Identifier)»':
+      field name: to_string(k)
+      field entry: '[$name, #true]'
+  | '«$(k :: Identifier): $(v :: AttributeEntryValue)»':
+      field name: to_string(k)
+      field entry: '[$name, $v.value]'
+
+expr.macro
+| '«value'«$'$'$x»'»': '$x'
+| '«value'«$(s :: String)»'»': 'Value.Text($s)'
+| '«value'«$(id :: Identifier)»'»':
+    let name: to_string(id)
+    '«Value.Element($name, {}, [])»'
+| '«value'«$(id :: Identifier) {$(e :: AttributeEntry), ...}»'»':
+    let name: to_string(id)
+    '«Value.Element($name,
+                    Attributes.from_entries($(e.entry), ...),
+                    [])»'
+| '«value'«$(id :: Identifier): $b; ...»'»':
+    let name: to_string(id)
+    '«Value.Element($name, {}, [value'$b', ...])»'
+| '«value'«$(id :: Identifier) {$(e :: AttributeEntry), ...}: $b; ...»'»':
+    let name: to_string(id)
+    '«Value.Element($name,
+                    Attributes.from_entries($(e.entry), ...),
+                    [value'$b', ...])»'
+
+expr.macro
+| '«values'«([])»'»':
+    '[]'
+| '«values'«([$(s :: String) ...+, $b, ...])»'»':
+    let text: String.append(Syntax.unwrap(s), ...)
+    '«[Value.Text($text)] ++ values'«([$b, ...])»'»'
+| '«values'«([$(n && ! (_ :: String)) ...+, $b, ...])»'»':
+    '«[value'$n', ...] ++ values'«([$b, ...])»'»'
+
+block:
+  let x: Value.Text("aoeu")
+  check:
+    value'$x'
+    ~is Value.Text("aoeu")
+  check:
+    value'"snth"'
+    ~is Value.Text("snth")
+  check:
+    value'a: $x'
+    ~is Value.Element("a", {}, [Value.Text("aoeu")])
+  check:
+    value'a {b: #false}: $x'
+    ~is Value.Element("a", {}, [Value.Text("aoeu")])
+  check:
+    value'a {b}: $x'
+    ~is Value.Element("a", {"b": #true}, [Value.Text("aoeu")])
+  check:
+    value'a {b: #true}: $x'
+    ~is Value.Element("a", {"b": #true}, [Value.Text("aoeu")])
+  check:
+    value'a {b: $("c" ++ "d")}: $x'
+    ~is Value.Element("a", {"b": "cd"}, [Value.Text("aoeu")])
+
+check:
+  value'"asonetuh"'
+  ~is Value.Text("asonetuh")
+
+check:
+  value'a: "b"'
+  ~is Value.Element("a", {}, [Value.Text("b")])
+check:
+  value'a {}: "b"'
+  ~is Value.Element("a", {}, [Value.Text("b")])
+
+check:
+  value'a {c: "c"}: "b"'
+  ~is Value.Element("a", {"c": "c"}, [Value.Text("b")])
+check:
+  value'a {c}: "b"'
+  ~is Value.Element("a", {"c": #true}, [Value.Text("b")])
+
+check:
+  value'html:
+          head: title: "Enter a Number to Add"
+          body {bgcolor: "white"}:
+            form {action: "next", method: "get"}:
+             "label"'
+  ~is Value.Element(
+    "html",
+    {},
+    [Value.Element(
+       "head",
+       {},
+       [Value.Element("title", {}, [Value.Text("Enter a Number to Add")])]),
+     Value.Element(
+       "body",
+       {"bgcolor": "white"},
+       [Value.Element(
+          "form",
+          {"action": "next", "method": "get"},
+          [Value.Text("label")])])])
+
+// ---------------------------------------------------------
+
+expr.macro check_value
+| 'check_value: $stx; $(str :: String); ...':
+    let s: String.append(Syntax.unwrap(str), ...)
+    'block:
+       check:
+         Value.pretty_print(value $stx)
+         ~prints: $s
+       check:
+         Value.pretty_format(Value.from_string($s))
+         ~is Value.pretty_format(value $stx)'
+
+check_value:
+  '"Enter a Number to Add"'
+  "Enter a Number to Add"
+
+check_value:
+  'a:
+     "The first of two lines of text."
+     "And another one, as I informed you above."'
+  "<a>"
+  "The first of two lines of text. And another one, as I informed you above."
+  "</a>"
+
+check_value:
+  'a:
+     "The first of two lines of text, long enough to be put on different lines."
+     "And another one, I told you there'd be two long lines of text."'
+  "<a>\n"
+  "    The first of two lines of text, long enough to be put on different lines.\n"
+  "    And another one, I told you there'd be two long lines of text.\n"
+  "</a>"
+
+check_value:
+  'a:
+     "There"
+     "are"
+     "a"
+     "lot"
+     "of"
+     "really"
+     "short"
+     "lines"
+     "here,"
+     "aren't"
+     "there."
+     "Will"
+     "it"
+     "do"
+     "any"
+     "line"
+     "wrapping?"'
+  "<a>\n"
+  "    There are a lot of really short lines here, aren't there. Will it do any\n"
+  "    line wrapping?\n"
+  "</a>"
+
+check_value:
+  'html:
+     head: title: "Enter a Number to Add"
+     body {bgcolor: "white"}:
+       form {action: "next", method: "get"}:
+        "label"'
+  "<html>\n"
+  "    <head><title>Enter a Number to Add</title></head>\n"
+  "    <body bgcolor=\"white\">"
+  "<form method=\"get\" action=\"next\">label</form>"
+  "</body>\n"
+  "</html>"
+
+check_value:
+  'html:
+     head: title: "Enter a Number to Add"
+     body {bgcolor: "white"}:
+       form {action, method: "get"}:
+        "label"'
+  "<html>\n"
+  "    <head><title>Enter a Number to Add</title></head>\n"
+  "    <body bgcolor=\"white\">"
+  "<form method=\"get\" action>label</form>"
+  "</body>\n"
+  "</html>"
+
+check_value:
+  'HKSMButton {className: "arrow-button",
+               onClick: "onClick",
+               id: "id",
+               disabled: "disabled"}:
+     img {src: "arrow",
+          alt: "decorative arrow",
+          className: "arrow arrow-left"}
+     span {className: "button-text"}: "text"
+     img {src: "arrow",
+          alt: "decorative arrow",
+          className: "arrow arrow-right"}'
+  "<HKSMButton\n"
+  "    id=\"id\"\n"
+  "    onClick=\"onClick\"\n"
+  "    disabled=\"disabled\"\n"
+  "    className=\"arrow-button\"\n"
+  ">\n"
+  "    <img src=\"arrow\" className=\"arrow arrow-left\""
+  " alt=\"decorative arrow\"/>\n"
+  "    <span className=\"button-text\">text</span>\n"
+  "    <img src=\"arrow\" className=\"arrow arrow-right\""
+  " alt=\"decorative arrow\"/>\n"
+  "</HKSMButton>"
+
+check_value:
+  'HKSMButton {className: "arrow-button",
+               onClick: "onClick",
+               id: "id",
+               disabled: "disabled"}:
+     img {src: "arrow",
+          alt: "decorative arrow",
+          className: "arrow arrow-left",
+          size: "1.5em"}
+     span {className: "button-text"}: "text"
+     img {src: "arrow",
+          alt: "decorative arrow",
+          className: "arrow arrow-right",
+          size: "1.5em"}'
+  "<HKSMButton\n"
+  "    id=\"id\"\n"
+  "    onClick=\"onClick\"\n"
+  "    disabled=\"disabled\"\n"
+  "    className=\"arrow-button\"\n"
+  ">\n"
+  "    <img\n"
+  "        className=\"arrow arrow-left\"\n"
+  "        alt=\"decorative arrow\"\n"
+  "        size=\"1.5em\"\n"
+  "        src=\"arrow\"\n"
+  "    />\n"
+  "    <span className=\"button-text\">text</span>\n"
+  "    <img\n"
+  "        className=\"arrow arrow-right\"\n"
+  "        alt=\"decorative arrow\"\n"
+  "        size=\"1.5em\"\n"
+  "        src=\"arrow\"\n"
+  "    />\n"
+  "</HKSMButton>"
+       

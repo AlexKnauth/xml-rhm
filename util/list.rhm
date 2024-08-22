@@ -1,0 +1,15 @@
+#lang rhombus/and_meta
+
+import:
+  rhombus.values as rhm_values
+  lib("racket/list.rkt") as rktlst:
+    rename:
+      #{splitf-at} as splitf_at
+
+export:
+  splitf_at
+
+fun splitf_at([e, ...], pred):
+  def rhm_values(PairList[a, ...], PairList[b, ...]):
+    rktlst.splitf_at(PairList[e, ...], pred)
+  [[a, ...], [b, ...]]
