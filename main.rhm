@@ -62,6 +62,10 @@ fun Value.docln(v):
 fun
 | Value.doc(Value.Text(s)):
     pe.text(s)
+| Value.doc(Value.Comment(s)):
+    pe.u_append(pe.text("<!--"), pe.text(s), pe.text("-->"))
+| Value.doc(Value.CData(s)):
+    pe.u_append(pe.text("<![CDATA["), pe.text(s), pe.text("]]>"))
 | Value.doc(Value.Element(name, {k: v, ...}, [])):
     wrap_children(pe.u_append(pe.text("<"), pe.text(name)),
                   pe.space,
@@ -278,6 +282,7 @@ expr.macro
                     Attributes.from_entries($(e.entry), ...),
                     [value'$b', ...])»'
 
+#//
 expr.macro
 | '«values'«([])»'»':
     '[]'
