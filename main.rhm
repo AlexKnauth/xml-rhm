@@ -116,9 +116,9 @@ def Attributes.entry_p:
     mpc.or_p(
       mpc.do:
         mpc.string_p("=\"")
-        value <-: string_nlg_p
+        val <-: string_nlg_p
         mpc.string_p("\"")
-        mpc.pure([name, value]),
+        mpc.pure([name, val]),
       mpc.do:
         mpc.lookahead_p(mpc.or_p(mpc.space_p, mpc.string_p(">")))
         mpc.pure([name, #true]))
