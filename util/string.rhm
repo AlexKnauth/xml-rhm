@@ -1,12 +1,83 @@
 #lang rhombus/and_meta
 
 import:
+  rhombus/rx open
+
+import:
   lib("racket/string.rkt") as rktstr:
     rename:
       #{string-join} as string_join
+      #{string-split} as string_split
 
 export:
   string_join
+  string_split
 
-fun string_join([s, ...], sep):
-  to_string(rktstr.string_join(PairList[s, ...], sep))
+def space_plus: rx'space+'.in_handle
+
+// ---------------------------------------------------------
+
+fun string_join([s, ...],
+                sep = " ",
+                ~before_first: before_first = "",
+                ~before_last: before_last = sep,
+                ~after_last: after_last = ""):
+  to_string(
+    rktstr.string_join(PairList[s, ...],
+                       sep,
+                       #{#:before-first}: before_first,
+                       #{#:before-last}: before_last,
+                       #{#:after-last}: after_last))
+
+check:
+  string_join(["a", "b", "c"])
+  ~is "a b c"
+
+check:
+  string_join(["one", "two", "three", "four"])
+  ~is "one two three four"
+
+check:
+  string_join(["one", "two", "three", "four"], ", ")
+  ~is "one, two, three, four"
+
+check:
+  string_join(["one", "two", "three", "four"], " potato ")
+  ~is "one potato two potato three potato four"
+
+check:
+  string_join(["x", "y", "z"],
+              ", ",
+              ~before_first: "Todo: ",
+              ~before_last: " and ",
+              ~after_last: ".")
+  ~is "Todo: x, y and z."
+
+// ---------------------------------------------------------
+
+fun string_split(s,
+                 sep = space_plus,
+                 ~trim: trim = #true,
+                 ~repeat: repeat = #false):
+  let PairList[a, ...]:
+    rktstr.string_split(s, sep, #{#:trim?}: trim, #{#:repeat?}: repeat)
+  [to_string(a), ...]
+
+
+check:
+  string_split("a b c")
+  ~is ["a", "b", "c"]
+
+check:
+  string_split("  foo bar  baz \r\n\t")
+  ~is ["foo", "bar", "baz"]
+
+check:
+  string_split("  ")
+  ~is []
+
+check:
+  string_split("  ", ~trim: #false)
+  ~is ["", ""]
+
+// ---------------------------------------------------------

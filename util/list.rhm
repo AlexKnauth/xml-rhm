@@ -8,8 +8,23 @@ import:
 
 export:
   splitf_at
+  flatten
 
 fun splitf_at([e, ...], pred):
   def rhm_values(PairList[a, ...], PairList[b, ...]):
     rktlst.splitf_at(PairList[e, ...], pred)
   [[a, ...], [b, ...]]
+
+fun flatten(v) :: List:
+  match v
+  | [e, ...]: List.append(flatten(e), ...)
+  | a: [a]
+
+check:
+  flatten([["a"], "b", ["c", ["d"], "e"], []])
+  ~is ["a", "b", "c", "d", "e"]
+
+check:
+  flatten("a")
+  ~is ["a"]
+
