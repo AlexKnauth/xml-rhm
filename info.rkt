@@ -9,7 +9,8 @@
     "functional-lib"
     "megaparsack"
     "pretty-expressive"
-    "rhombus-lib"))
+    "rhombus-lib"
+    "treelist-util"))
 
 (define build-deps
   '("racket-doc"

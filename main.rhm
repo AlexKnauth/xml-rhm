@@ -2,9 +2,8 @@
 
 import:
   rhombus.values as rhm_values
+  treelist_util open
   xml/util/datatype.datatype
-  xml/util/list.flatten
-  xml/util/list.splitf_at
   xml/util/megaparsack as mpc
   xml/util/pretty_expressive as pe
   xml/util/string.string_join
@@ -94,8 +93,8 @@ fun Values.doc(vs):
          pe.flatten(pe.u_append(& ds)))
 
 fun Values.docs(vs):
-  let [ts, rst1]: splitf_at(vs, Value.is_text)
-  let [nts, rst2]: splitf_at(rst1, Value.is_nontext)
+  let rhm_values(ts, rst1): List.splitf(vs, Value.is_text)
+  let rhm_values(nts, rst2): List.splitf(rst1, Value.is_nontext)
   match [ts, nts]
   | [[], []]: rst2
   | [[], nts]: nts.map(Value.doc) ++ Values.docs(rst2)
@@ -262,7 +261,7 @@ meta:
       field entry: '[$name, $v.value]'
 
 expr.macro
-| '«values'«$'$'$x»'»': 'flatten($x)'
+| '«values'«$'$'$x»'»': 'List.flatten($x)'
 | '«values'«$(s :: String)»'»': 'txt([$s])'
 | '«values'«$(id :: Identifier)»'»':
     let name: to_string(id)
