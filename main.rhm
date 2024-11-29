@@ -267,6 +267,8 @@ expr.macro
 | '«values'«$(id :: Identifier)»'»':
     let name: to_string(id)
     '«[Value.Element($name, {}, [])]»'
+| '«values'«($b)»'»': '«values'$b'»'
+| '«values'«[$b, ...]»'»': '«List.append(values'$b', ...)»'
 | '«values'«$(id :: Identifier) {$(e :: AttributeEntry), ...}»'»':
     let name: to_string(id)
     '«[Value.Element($name,
@@ -276,6 +278,16 @@ expr.macro
     let name: to_string(id)
     '«[Value.Element($name, {}, List.append(values'$b', ...))]»'
 | '«values'«$(id :: Identifier) {$(e :: AttributeEntry), ...}: $b; ...»'»':
+    let name: to_string(id)
+    '«[Value.Element($name,
+                     Attributes.from_entries($(e.entry), ...),
+                     List.append(values'$b', ...))]»'
+| '«values'«$(id :: Identifier) ($(e :: AttributeEntry), ...)»'»':
+    let name: to_string(id)
+    '«[Value.Element($name,
+                     Attributes.from_entries($(e.entry), ...),
+                     [])]»'
+| '«values'«$(id :: Identifier) ($(e :: AttributeEntry), ..., [$b, ...])»'»':
     let name: to_string(id)
     '«[Value.Element($name,
                      Attributes.from_entries($(e.entry), ...),
@@ -344,6 +356,42 @@ check:
                {"action": "next", "method": "get"},
                [Value.Text("label")])])])]
 
+check:
+  values'@t'
+  ~is [Value.Element("t", {}, [])]
+
+check:
+  values'@t(k: "v")'
+  ~is [Value.Element("t", {"k": "v"}, [])]
+
+check:
+  values'@t{}'
+  ~is [Value.Element("t", {}, [])]
+
+check:
+  values'@t(k: "v"){}'
+  ~is [Value.Element("t", {"k": "v"}, [])]
+
+check:
+  values'@{a b c}'
+  ~is [Value.Text("a"), Value.Text("b"), Value.Text("c")]
+
+check:
+  values'@t{a b c}'
+  ~is [Value.Element("t", {}, [Value.Text("a"), Value.Text("b"), Value.Text("c")])]
+
+check:
+  values'@t(k){a b c}'
+  ~is [Value.Element("t",
+                     {"k": #true},
+                     [Value.Text("a"), Value.Text("b"), Value.Text("c")])]
+
+check:
+  values'@t(k: "v"){a b c}'
+  ~is [Value.Element("t",
+                     {"k": "v"},
+                     [Value.Text("a"), Value.Text("b"), Value.Text("c")])]
+
 // ---------------------------------------------------------
 
 expr.macro check_values
@@ -371,6 +419,16 @@ check_values:
   'a:
      "The first of two lines of text, long enough to be put on different lines."
      "And another one, I told you there'd be two long lines of text."'
+  @{
+  <a>
+      The first of two lines of text, long enough to be put on different lines.
+      And another one, I told you there'd be two long lines of text.
+  </a>}
+
+check_values:
+  '@a{
+The first of two lines of text, long enough to be put on different lines.
+And another one, I told you there'd be two long lines of text.}'
   @{
   <a>
       The first of two lines of text, long enough to be put on different lines.
@@ -408,6 +466,17 @@ check_values:
      body {bgcolor: "white"}:
        form {action: "next", method: "get"}:
         "label"'
+  @{
+  <html>
+      <head><title>Enter a Number to Add</title></head>
+      <body bgcolor="white"><form method="get" action="next">label</form></body>
+  </html>}
+
+check_values:
+  'html:
+     head: @title{Enter a Number to Add}
+     body {bgcolor: "white"}:
+       @form(action: "next", method: "get"){label}'
   @{
   <html>
       <head><title>Enter a Number to Add</title></head>
